@@ -1,0 +1,37 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "profile.schema.json",
+  "title": "User Profile",
+  "type": "object",
+  "description": "User profile information",
+  "properties": {
+    "firstName": {
+      "type": "string"
+    },
+    "lastName": {
+      "type": "string"
+    },
+    "avatar": {
+      "type": "string",
+      "format": "uri"
+    },
+    "bio": {
+      "type": "string",
+      "maxLength": 500
+    },
+    "address": {
+      "$ref": "../address/address.schema.json"
+    },
+    "phoneNumbers": {
+      "type": "array",
+      "items": {
+        "$ref": "../phone/phone.schema.json"
+      }
+    },
+    "birthDate": {
+      "type": "string",
+      "format": "date"
+    }
+  },
+  "required": ["firstName", "lastName"]
+}

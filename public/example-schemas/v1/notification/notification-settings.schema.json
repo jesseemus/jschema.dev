@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "notification-settings.schema.json",
+  "title": "Notification Settings",
+  "type": "object",
+  "description": "User notification preferences",
+  "properties": {
+    "email": {
+      "type": "boolean",
+      "default": true
+    },
+    "push": {
+      "type": "boolean",
+      "default": true
+    },
+    "sms": {
+      "type": "boolean",
+      "default": false
+    },
+    "frequency": {
+      "type": "string",
+      "enum": ["instant", "daily", "weekly"],
+      "default": "instant"
+    }
+  }
+}

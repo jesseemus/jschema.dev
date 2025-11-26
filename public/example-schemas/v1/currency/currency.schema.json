@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "currency.schema.json",
+  "title": "Currency",
+  "type": "object",
+  "description": "Currency information",
+  "properties": {
+    "code": {
+      "type": "string",
+      "pattern": "^[A-Z]{3}$",
+      "description": "ISO 4217 currency code"
+    },
+    "name": {
+      "type": "string"
+    },
+    "symbol": {
+      "type": "string"
+    }
+  },
+  "required": ["code", "name", "symbol"]
+}

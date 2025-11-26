@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "role.schema.json",
+  "title": "Role",
+  "type": "object",
+  "description": "User role and permissions",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string",
+      "enum": ["admin", "moderator", "user", "guest"]
+    },
+    "permissions": {
+      "type": "array",
+      "items": {
+        "$ref": "../permission/permission.schema.json"
+      }
+    },
+    "description": {
+      "type": "string"
+    }
+  },
+  "required": ["id", "name"]
+}

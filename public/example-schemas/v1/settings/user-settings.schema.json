@@ -1,0 +1,23 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "user-settings.schema.json",
+  "title": "User Settings",
+  "type": "object",
+  "description": "User preferences and settings",
+  "properties": {
+    "theme": {
+      "type": "string",
+      "enum": ["light", "dark", "auto"]
+    },
+    "language": {
+      "type": "string",
+      "pattern": "^[a-z]{2}(-[A-Z]{2})?$"
+    },
+    "notifications": {
+      "$ref": "../notification/notification-settings.schema.json"
+    },
+    "privacy": {
+      "$ref": "../privacy/privacy-settings.schema.json"
+    }
+  }
+}

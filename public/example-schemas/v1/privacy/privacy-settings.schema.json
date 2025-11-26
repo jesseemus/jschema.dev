@@ -1,0 +1,25 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "privacy-settings.schema.json",
+  "title": "Privacy Settings",
+  "type": "object",
+  "description": "User privacy preferences",
+  "properties": {
+    "profileVisibility": {
+      "type": "string",
+      "enum": ["public", "friends", "private"]
+    },
+    "showEmail": {
+      "type": "boolean",
+      "default": false
+    },
+    "allowMessagesFrom": {
+      "type": "string",
+      "enum": ["everyone", "friends", "nobody"]
+    },
+    "searchEngineIndexing": {
+      "type": "boolean",
+      "default": true
+    }
+  }
+}

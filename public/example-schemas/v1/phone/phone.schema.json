@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "phone.schema.json",
+  "title": "Phone Number",
+  "type": "object",
+  "description": "Phone number with type",
+  "properties": {
+    "type": {
+      "type": "string",
+      "enum": ["mobile", "home", "work"]
+    },
+    "number": {
+      "type": "string",
+      "pattern": "^\\+?[1-9]\\d{1,14}$"
+    },
+    "isPrimary": {
+      "type": "boolean"
+    }
+  },
+  "required": ["type", "number"]
+}
