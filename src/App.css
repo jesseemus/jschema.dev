@@ -143,6 +143,21 @@
   background-color: #5a4a84;
 }
 
+.btn-github {
+  color: #c9d1d9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.btn-github:hover {
+  color: white;
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
 .btn-import {
   background-color: #2d8659;
   color: white;
