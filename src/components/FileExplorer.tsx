@@ -21,6 +21,7 @@ interface FileExplorerProps {
   isMaximized?: boolean;
   onToggleMaximize?: () => void;
   onSwitchToMultiMode?: () => void;
+  onDragStateReset?: () => void;
 }
 
 type AddType = 'file' | 'folder' | null;
@@ -158,6 +159,7 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
   isMaximized,
   onToggleMaximize,
   onSwitchToMultiMode,
+  onDragStateReset,
 }) => {
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [addType, setAddType] = useState<AddType>('file');
@@ -179,12 +181,15 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
 
   const handleDragOver = useCallback((e: React.DragEvent, path: string, isDir: boolean) => {
     e.preventDefault();
-    if (!draggedPath) return;
+    e.stopPropagation();
     
-    // Can only drop on folders or root
-    if (isDir) {
-      e.dataTransfer.dropEffect = 'move';
-      setDragOverPath(path);
+    const hasFiles = e.dataTransfer.types.includes('Files');
+    
+    if (hasFiles || draggedPath) {
+      if (isDir) {
+        e.dataTransfer.dropEffect = hasFiles ? 'copy' : 'move';
+        setDragOverPath(path);
+      }
     }
   }, [draggedPath]);
 
@@ -193,32 +198,51 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
     setDragOverPath(null);
   }, []);
 
-  const handleDrop = useCallback((e: React.DragEvent, targetPath: string, isDir: boolean) => {
+  const handleDrop = useCallback(async (e: React.DragEvent, targetPath: string, isDir: boolean) => {
     e.preventDefault();
+    e.stopPropagation();
     setDragOverPath(null);
+    onDragStateReset?.();
+    
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length > 0 && onAddFile) {
+      for (const file of files) {
+        if (file.name.endsWith('.json')) {
+          try {
+            const content = await file.text();
+            JSON.parse(content);
+            
+            const fullPath = targetPath ? `${targetPath}/${file.name}` : file.name;
+            onAddFile(fullPath, content);
+          } catch (e) {
+            console.error(`Failed to parse ${file.name}:`, e);
+            alert(`Failed to parse JSON file: ${file.name}. Make sure it's valid JSON.`);
+          }
+        }
+      }
+      setDraggedPath(null);
+      return;
+    }
     
     if (!draggedPath || !isDir || !onMoveFile) {
       setDraggedPath(null);
       return;
     }
     
-    // Get the filename from the dragged path
     const fileName = draggedPath.split('/').pop();
     if (!fileName) {
       setDraggedPath(null);
       return;
     }
     
-    // Calculate new path
     const newPath = targetPath ? `${targetPath}/${fileName}` : fileName;
     
-    // Don't move if it's the same location
     if (newPath !== draggedPath) {
       onMoveFile(draggedPath, newPath);
     }
     
     setDraggedPath(null);
-  }, [draggedPath, onMoveFile]);
+  }, [draggedPath, onMoveFile, onAddFile, onDragStateReset]);
 
   // Get all folder paths from schemasMap
   const folderPaths = useMemo(() => {
@@ -431,8 +455,10 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
         className={`file-explorer-content ${isMaximized ? 'maximized-content' : ''} ${dragOverPath === '' ? 'drag-over-root' : ''}`}
         onDragOver={(e) => {
           e.preventDefault();
-          if (draggedPath) {
-            e.dataTransfer.dropEffect = 'move';
+          e.stopPropagation();
+          const hasFiles = e.dataTransfer.types.includes('Files');
+          if (draggedPath || hasFiles) {
+            e.dataTransfer.dropEffect = hasFiles ? 'copy' : 'move';
             setDragOverPath('');
           }
         }}

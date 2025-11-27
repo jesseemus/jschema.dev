@@ -63,6 +63,8 @@ function App() {
   const [viewMode, setViewMode] = useState<'single' | 'multi'>('multi');
   const [selectedSchemaPath, setSelectedSchemaPath] = useState<string | null>(null);
   const reactFlowInstance = useRef<ReactFlowInstance | null>(null);
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
+  const dragCounterRef = useRef(0);
 
   type NavigationState = {
     label: string;
@@ -849,8 +851,130 @@ function App() {
     }
   }, [setNodes, setEdges]);
 
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounterRef.current++;
+    if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+      setIsDraggingOver(true);
+    }
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounterRef.current--;
+    if (dragCounterRef.current === 0) {
+      setIsDraggingOver(false);
+    }
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+  }, []);
+
+  const resetDragState = useCallback(() => {
+    setIsDraggingOver(false);
+    dragCounterRef.current = 0;
+  }, []);
+
+  const handleDrop = useCallback(async (e: React.DragEvent) => {
+    e.preventDefault();
+    resetDragState();
+
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length === 0) return;
+
+    setLoading(true);
+    try {
+      const newSchemasMap = new Map(schemasMap);
+      const allRefs: SchemaRelationship[] = [...allRelationships];
+      let addedCount = 0;
+
+      for (const file of files) {
+        if (file.name.endsWith('.zip')) {
+          try {
+            const zip = await JSZip.loadAsync(file);
+            const filePromises: Promise<void>[] = [];
+            
+            zip.forEach((relativePath, zipEntry) => {
+              if (!zipEntry.dir && relativePath.endsWith('.json')) {
+                filePromises.push(
+                  zipEntry.async('string').then((content) => {
+                    try {
+                      const parsed = JSON.parse(content);
+                      newSchemasMap.set(relativePath, parsed);
+                      const refs = extractSchemaReferences(parsed, relativePath);
+                      allRefs.push(...refs);
+                      addedCount++;
+                    } catch (e) {
+                      console.error(`Failed to parse ${relativePath}:`, e);
+                    }
+                  })
+                );
+              }
+            });
+            
+            await Promise.all(filePromises);
+          } catch (e) {
+            console.error(`Failed to process ZIP ${file.name}:`, e);
+            alert(`Failed to process ZIP file: ${file.name}`);
+          }
+        }
+        else if (file.name.endsWith('.json')) {
+          try {
+            const content = await file.text();
+            const parsed = JSON.parse(content);
+            
+            const path = file.name;
+            newSchemasMap.set(path, parsed);
+            const refs = extractSchemaReferences(parsed, path);
+            allRefs.push(...refs);
+            addedCount++;
+          } catch (e) {
+            console.error(`Failed to parse ${file.name}:`, e);
+            alert(`Failed to parse JSON file: ${file.name}. Make sure it's valid JSON.`);
+          }
+        }
+      }
+
+      if (addedCount > 0) {
+        setSchemasMap(newSchemasMap);
+        setAllRelationships(allRefs);
+        
+        const { nodes: rawNodes, edges: rawEdges } = createSchemaGraph(newSchemasMap, allRefs, expandedNodes);
+        const { nodes: layoutedNodes, edges: layoutedEdges } = await layoutGraph(rawNodes, rawEdges);
+        setNodes(layoutedNodes);
+        setEdges(layoutedEdges);
+        
+        const summary = `// Loaded ${newSchemasMap.size} schemas (${addedCount} new)\n// Found ${allRefs.length} $ref relationships\n\n` +
+          `Schemas:\n${Array.from(newSchemasMap.keys()).map(name => `- ${name}`).join('\n')}`;
+        setSchema(summary);
+        
+        if (viewMode === 'single') {
+          setViewMode('multi');
+        }
+        
+        setTimeout(() => {
+          if (reactFlowInstance.current) {
+            reactFlowInstance.current.fitView({ padding: 0.2, duration: 300 });
+          }
+        }, 100);
+      }
+    } catch (e) {
+      console.error('Failed to process dropped files:', e);
+      alert('Failed to process dropped files.');
+    } finally {
+      setLoading(false);
+    }
+  }, [schemasMap, allRelationships, expandedNodes, viewMode, setNodes, setEdges]);
+
   return (
-    <div className="app-container">
+    <div 
+      className="app-container"
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
       <header className="app-header">
         <div className="header-left">
           <div className="logo">
@@ -953,9 +1077,20 @@ function App() {
                 onPropertyClick={handleEditorClick}
                 onSchemaChange={debouncedMultiSchemaChange}
                 onAddSchema={(path, content) => {
+                  const parsed = JSON.parse(content);
                   const newMap = new Map(schemasMap);
-                  newMap.set(path, JSON.parse(content));
+                  newMap.set(path, parsed);
                   setSchemasMap(newMap);
+                  
+                  const refs = extractSchemaReferences(parsed, path);
+                  const allRefs = [...allRelationships, ...refs];
+                  setAllRelationships(allRefs);
+                  
+                  const { nodes: rawNodes, edges: rawEdges } = createSchemaGraph(newMap, allRefs, expandedNodes);
+                  layoutGraph(rawNodes, rawEdges).then(({ nodes: layoutedNodes, edges: layoutedEdges }) => {
+                    setNodes(layoutedNodes);
+                    setEdges(layoutedEdges);
+                  });
                 }}
                 onMoveFile={handleMoveFile}
                 onDeleteFile={handleDeleteFile}
@@ -967,6 +1102,7 @@ function App() {
                   const fileName = path.split('/').pop() || path;
                   handleEditorClick(fileName);
                 }}
+                onDragStateReset={resetDragState}
               />
             ) : (
               <JsonEditor 
@@ -975,16 +1111,28 @@ function App() {
                 onPropertyClick={handleEditorClick}
                 schemasMap={schemasMap}
                 onAddSchema={(path, content) => {
+                  const parsed = JSON.parse(content);
                   const newMap = new Map(schemasMap);
-                  newMap.set(path, JSON.parse(content));
+                  newMap.set(path, parsed);
                   setSchemasMap(newMap);
-                  // Save to editorStorage so it persists when switching to multi-mode
+                  
+                  const refs = extractSchemaReferences(parsed, path);
+                  const allRefs = [...allRelationships, ...refs];
+                  setAllRelationships(allRefs);
+                  
+                  const { nodes: rawNodes, edges: rawEdges } = createSchemaGraph(newMap, allRefs, expandedNodes);
+                  layoutGraph(rawNodes, rawEdges).then(({ nodes: layoutedNodes, edges: layoutedEdges }) => {
+                    setNodes(layoutedNodes);
+                    setEdges(layoutedEdges);
+                  });
+                  
                   editorStorage.saveEditedContent(path, content);
                 }}
                 onMoveFile={handleMoveFile}
                 onDeleteFile={handleDeleteFile}
                 onCopyFile={handleCopyFile}
                 onClearAll={handleClearAll}
+                onDragStateReset={resetDragState}
                 onSwitchToMultiMode={() => {
                   // First, sync current schema content back to schemasMap
                   // The 'example.schema.json' is the default file, or find the first entry
@@ -1119,6 +1267,16 @@ function App() {
                 </div>
               ))}
             </div>
+          </div>
+        </div>
+      )}
+
+      {isDraggingOver && (
+        <div className="drag-drop-overlay">
+          <div className="drag-drop-content">
+            <Upload size={64} />
+            <h2>Drop JSON Schema Files Here</h2>
+            <p>Supports .json files and .zip archives</p>
           </div>
         </div>
       )}

@@ -569,3 +569,50 @@
   bottom: auto !important;
   left: auto !important;
 }
+
+/* Drag and Drop Overlay */
+.drag-drop-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 122, 204, 0.05);
+  border: 2px dashed rgba(0, 122, 204, 0.4);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.drag-drop-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  color: #61dafb;
+  text-align: center;
+  padding: 20px 30px;
+  border-radius: 8px;
+  background-color: rgba(37, 37, 38, 0.95);
+  border: 1px solid rgba(97, 218, 251, 0.3);
+}
+
+.drag-drop-content svg {
+  opacity: 0.8;
+}
+
+.drag-drop-content h2 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 500;
+  color: #ccc;
+}
+
+.drag-drop-content p {
+  margin: 0;
+  font-size: 0.9rem;
+  opacity: 0.7;
+  color: #999;
+}

@@ -17,6 +17,7 @@ interface JsonEditorProps {
     onCopyFile?: (path: string) => void;
     onClearAll?: () => void;
     onSwitchToMultiMode?: () => void;
+    onDragStateReset?: () => void;
 }
 
 interface MultiSchemaEditorProps {
@@ -30,6 +31,7 @@ interface MultiSchemaEditorProps {
     onClearAll?: () => void;
     selectedSchemaPath?: string | null;
     onFileSelect?: (path: string) => void;
+    onDragStateReset?: () => void;
 }
 
 // Helper to register $ref autocomplete
@@ -114,7 +116,8 @@ export const JsonEditor: React.FC<JsonEditorProps> = ({
     onDeleteFile,
     onCopyFile,
     onClearAll,
-    onSwitchToMultiMode
+    onSwitchToMultiMode,
+    onDragStateReset
 }) => {
     const [isMaximized, setIsMaximized] = useState(false);
     const [openTabs, setOpenTabs] = useState<string[]>([]);
@@ -210,6 +213,7 @@ export const JsonEditor: React.FC<JsonEditorProps> = ({
                         isMaximized={isMaximized}
                         onToggleMaximize={() => setIsMaximized(!isMaximized)}
                         onSwitchToMultiMode={canSwitchToMulti ? onSwitchToMultiMode : undefined}
+                        onDragStateReset={onDragStateReset}
                     />
                 </div>
             )}
@@ -245,6 +249,7 @@ export const MultiSchemaEditor: React.FC<MultiSchemaEditorProps> = ({
     onClearAll,
     selectedSchemaPath,
     onFileSelect: onFileSelectProp,
+    onDragStateReset,
 }) => {
     const [openTabs, setOpenTabs] = useState<string[]>([]);
     const [activeFile, setActiveFile] = useState<string | null>(null);
@@ -446,6 +451,7 @@ export const MultiSchemaEditor: React.FC<MultiSchemaEditorProps> = ({
                     onClearAll={onClearAll}
                     isMaximized={isMaximized}
                     onToggleMaximize={() => setIsMaximized(!isMaximized)}
+                    onDragStateReset={onDragStateReset}
                 />
             </div>
             <div className="editor-area">
