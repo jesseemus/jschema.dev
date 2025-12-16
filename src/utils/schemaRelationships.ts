@@ -8,6 +8,16 @@ export interface SchemaRelationship {
     propertyName?: string;
 }
 
+/**
+ * Represents a connection rule extracted from a schema's $ref properties
+ */
+export interface ConnectionRule {
+    propertyPath: string;      // e.g., "profile" or "roles"
+    targetSchemaPath: string;  // resolved path to target schema
+    cardinality: 'one' | 'many';  // single ref = 'one', array ref = 'many'
+    required: boolean;         // if the property is in schema.required
+}
+
 const resolveRelativePath = (basePath: string, relativePath: string): string => {
     const baseDir = basePath.substring(0, basePath.lastIndexOf('/'));
 
@@ -24,6 +34,75 @@ const resolveRelativePath = (basePath: string, relativePath: string): string => 
     }
 
     return resultParts.join('/');
+};
+
+/**
+ * Extract connection rules from a schema's $ref properties
+ * @param schema - The schema object to analyze
+ * @param schemaPath - The path of the schema (used to resolve relative $refs)
+ * @returns Array of ConnectionRule objects describing allowed connections
+ */
+export const getSchemaConnectionRules = (schema: any, schemaPath: string): ConnectionRule[] => {
+    const rules: ConnectionRule[] = [];
+    const requiredFields = new Set<string>(schema.required || []);
+
+    const processProperty = (propName: string, propValue: any): void => {
+        if (!propValue || typeof propValue !== 'object') return;
+
+        // Direct $ref (one-to-one)
+        if (propValue.$ref && typeof propValue.$ref === 'string') {
+            const match = propValue.$ref.match(/^([^#]+)/);
+            if (match && match[1] && match[1].endsWith('.json')) {
+                let refPath = match[1];
+                if (refPath.startsWith('../') || refPath.startsWith('./')) {
+                    refPath = resolveRelativePath(schemaPath, refPath);
+                } else if (!refPath.includes('/')) {
+                    const baseDir = schemaPath.substring(0, schemaPath.lastIndexOf('/'));
+                    refPath = baseDir ? `${baseDir}/${refPath}` : refPath;
+                }
+
+                rules.push({
+                    propertyPath: propName,
+                    targetSchemaPath: refPath,
+                    cardinality: 'one',
+                    required: requiredFields.has(propName)
+                });
+            }
+            return;
+        }
+
+        // Array with $ref items (one-to-many)
+        if (propValue.type === 'array' && propValue.items) {
+            if (propValue.items.$ref && typeof propValue.items.$ref === 'string') {
+                const match = propValue.items.$ref.match(/^([^#]+)/);
+                if (match && match[1] && match[1].endsWith('.json')) {
+                    let refPath = match[1];
+                    if (refPath.startsWith('../') || refPath.startsWith('./')) {
+                        refPath = resolveRelativePath(schemaPath, refPath);
+                    } else if (!refPath.includes('/')) {
+                        const baseDir = schemaPath.substring(0, schemaPath.lastIndexOf('/'));
+                        refPath = baseDir ? `${baseDir}/${refPath}` : refPath;
+                    }
+
+                    rules.push({
+                        propertyPath: propName,
+                        targetSchemaPath: refPath,
+                        cardinality: 'many',
+                        required: requiredFields.has(propName)
+                    });
+                }
+            }
+        }
+    };
+
+    // Process top-level properties
+    if (schema.properties && typeof schema.properties === 'object') {
+        Object.entries(schema.properties).forEach(([propName, propValue]) => {
+            processProperty(propName, propValue);
+        });
+    }
+
+    return rules;
 };
 
 export const extractSchemaReferences = (schema: any, schemaName: string): SchemaRelationship[] => {
