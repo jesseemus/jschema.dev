@@ -313,6 +313,28 @@ function findMatchingSchema(
   data: Record<string, any>,
   schemas: Record<string, object>
 ): { schemaPath: string; score: number } | null {
+  // First, check if data has explicit schemaPath property
+  if (data.schemaPath && typeof data.schemaPath === 'string') {
+    const explicitPath = data.schemaPath;
+    
+    // Try direct match
+    if (schemas[explicitPath]) {
+      return { schemaPath: explicitPath, score: 1.0 };
+    }
+    
+    // Try flexible matching (path might be keyed differently)
+    const matchingKey = Object.keys(schemas).find(key => {
+      // Match end of path (e.g., "v1/project/project.schema.json" matches "/schemas/v1/project/project.schema.json")
+      return key.endsWith(explicitPath) || explicitPath.endsWith(key) ||
+        // Also try matching just the filename parts
+        key.replace(/^.*\/schemas\//, '').toLowerCase() === explicitPath.replace(/^.*\/schemas\//, '').toLowerCase();
+    });
+    
+    if (matchingKey) {
+      return { schemaPath: matchingKey, score: 1.0 };
+    }
+  }
+  
   const dataKeys = Object.keys(data).filter(k => !k.startsWith('_')); // Ignore metadata keys
   let bestMatch: { schemaPath: string; score: number } | null = null;
 
@@ -442,6 +464,28 @@ export function validateDataAgainstSchema(
 }
 
 /**
+ * Unwrap data if it's in a wrapper format (e.g., { generator, version, date, project: {...} })
+ * Returns the actual data to import
+ */
+function unwrapData(data: any): any {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    return data;
+  }
+  
+  // Check if this looks like a wrapper (has project or data property with schemaPath)
+  if (data.project && typeof data.project === 'object' && data.project.schemaPath) {
+    return data.project;
+  }
+  
+  if (data.data && typeof data.data === 'object' && data.data.schemaPath) {
+    return data.data;
+  }
+  
+  // Not a wrapper, return as-is
+  return data;
+}
+
+/**
  * Validate imported JSON data against available schemas
  */
 export function validateImportData(
@@ -455,15 +499,18 @@ export function validateImportData(
     return { valid: false, errors: ['Invalid JSON: Expected an object'], warnings };
   }
   
+  // Unwrap data if it's in a wrapper format
+  const actualData = unwrapData(data);
+  
   // Handle array of objects
-  if (Array.isArray(data)) {
-    if (data.length === 0) {
+  if (Array.isArray(actualData)) {
+    if (actualData.length === 0) {
       return { valid: false, errors: ['Empty array - nothing to import'], warnings };
     }
     
     // Validate each item
-    for (let i = 0; i < data.length; i++) {
-      const item = data[i];
+    for (let i = 0; i < actualData.length; i++) {
+      const item = actualData[i];
       if (!item || typeof item !== 'object' || Array.isArray(item)) {
         errors.push(`Item ${i}: Not a valid object`);
         continue;
@@ -481,13 +528,13 @@ export function validateImportData(
   }
   
   // Single object
-  const match = findMatchingSchema(data, schemas);
+  const match = findMatchingSchema(actualData, schemas);
   if (!match) {
     return { valid: false, errors: ['No matching schema found for the data'], warnings };
   }
   
   // Validate against matched schema
-  const validation = validateDataAgainstSchema(data, match.schemaPath, schemas);
+  const validation = validateDataAgainstSchema(actualData, match.schemaPath, schemas);
   
   if (match.score < 0.8) {
     validation.warnings.push(`Partial schema match (${Math.round(match.score * 100)}%)`);
@@ -507,6 +554,9 @@ export function importFromJson(
   const nodes: Node[] = [];
   const edges: Edge[] = [];
   const errors: string[] = [];
+  
+  // Unwrap data if needed
+  const actualData = unwrapData(data);
   
   // Track created instances by their position in the data
   const instanceMap = new Map<any, string>(); // data object -> instance ID
@@ -606,16 +656,29 @@ export function importFromJson(
         const childY = position.y + (childIndex * (NODE_HEIGHT + VERTICAL_GAP));
         createNodeFromData(nestedValue, { x: childX, y: childY }, instanceId, rule.propertyPath);
         childIndex++;
-      } else if (rule.cardinality === 'many' && Array.isArray(nestedValue)) {
-        // Array of nested objects
-        for (let i = 0; i < nestedValue.length; i++) {
-          const item = nestedValue[i];
-          if (typeof item === 'object' && item !== null) {
-            const childY = position.y + ((childIndex + i) * (NODE_HEIGHT + VERTICAL_GAP));
-            createNodeFromData(item, { x: childX, y: childY }, instanceId, rule.propertyPath);
+      } else if (rule.cardinality === 'many') {
+        if (Array.isArray(nestedValue)) {
+          // Array of nested objects
+          for (let i = 0; i < nestedValue.length; i++) {
+            const item = nestedValue[i];
+            if (typeof item === 'object' && item !== null) {
+              const childY = position.y + ((childIndex + i) * (NODE_HEIGHT + VERTICAL_GAP));
+              createNodeFromData(item, { x: childX, y: childY }, instanceId, rule.propertyPath);
+            }
           }
+          childIndex += nestedValue.length;
+        } else if (typeof nestedValue === 'object') {
+          // Object with keyed children (patternProperties pattern, e.g., { uuid1: {...}, uuid2: {...} })
+          const items = Object.values(nestedValue);
+          for (let i = 0; i < items.length; i++) {
+            const item = items[i];
+            if (typeof item === 'object' && item !== null) {
+              const childY = position.y + ((childIndex + i) * (NODE_HEIGHT + VERTICAL_GAP));
+              createNodeFromData(item as Record<string, any>, { x: childX, y: childY }, instanceId, rule.propertyPath);
+            }
+          }
+          childIndex += items.length;
         }
-        childIndex += nestedValue.length;
       }
     }
     
@@ -655,10 +718,10 @@ export function importFromJson(
   }
   
   // Process the data
-  if (Array.isArray(data)) {
+  if (Array.isArray(actualData)) {
     // Multiple root objects
     let yOffset = startPosition.y;
-    for (const item of data) {
+    for (const item of actualData) {
       if (typeof item === 'object' && item !== null && !Array.isArray(item)) {
         createNodeFromData(item, { x: startPosition.x, y: yOffset });
         yOffset += NODE_HEIGHT + VERTICAL_GAP;
@@ -666,7 +729,7 @@ export function importFromJson(
     }
   } else {
     // Single root object
-    createNodeFromData(data, startPosition);
+    createNodeFromData(actualData, startPosition);
   }
   
   return {

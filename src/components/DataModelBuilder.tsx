@@ -741,7 +741,7 @@ export const DataModelBuilder: React.FC<DataModelBuilderProps> = ({ schemas }) =
             onEdgeMouseEnter={onEdgeMouseEnter}
             onEdgeMouseLeave={onEdgeMouseLeave}
             onInit={onInit}
-            minZoom={0.1}
+            minZoom={0.005}
             maxZoom={2}
             fitView
             proOptions={proOptions}
