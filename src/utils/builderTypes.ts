@@ -103,6 +103,7 @@ export function getSchemaNameFromPath(schemaPath: string): string {
 
 /**
  * Group schemas by their folder/entity
+ * Filters out primitive/alias schemas that shouldn't be shown in the palette
  * @param schemas - Record of schema path to schema object
  * @returns Map of folder name to array of SchemaInfo
  */
@@ -110,6 +111,11 @@ export function groupSchemasByFolder(schemas: Record<string, object>): Map<strin
   const groups = new Map<string, SchemaInfo[]>();
   
   Object.entries(schemas).forEach(([path, schema]) => {
+    // Skip primitive schemas and schemas that are just aliases to primitives
+    if (isPrimitiveOrAliasSchema(path, schema)) {
+      return;
+    }
+    
     const parts = path.split('/');
     // Get the folder name (e.g., "user" from "v1/user/user.schema.json")
     const folderName = parts.length > 1 ? parts[parts.length - 2] : 'root';
@@ -129,4 +135,55 @@ export function groupSchemasByFolder(schemas: Record<string, object>): Map<strin
   });
   
   return groups;
+}
+
+/**
+ * Check if a schema is a primitive type or just an alias to a primitive
+ * These schemas shouldn't be shown as draggable nodes in the palette
+ */
+function isPrimitiveOrAliasSchema(schemaPath: string, schema: object): boolean {
+  const schemaObj = schema as Record<string, any>;
+  const lowerPath = schemaPath.toLowerCase();
+  
+  // Skip anything in the primitives folder
+  if (lowerPath.includes('/primitives/')) {
+    return true;
+  }
+  
+  // Check for primitive type directly
+  const primitiveTypes = ['string', 'number', 'integer', 'boolean', 'null'];
+  if (primitiveTypes.includes(schemaObj.type)) {
+    return true;
+  }
+  
+  // Check if it's just a $ref to another schema (alias)
+  // These are schemas that have ONLY a $ref at the root level
+  if (schemaObj.$ref && !schemaObj.properties && !schemaObj.allOf && !schemaObj.anyOf && !schemaObj.oneOf) {
+    return true;
+  }
+  
+  // Check if it's just an anyOf/oneOf wrapper (type union without own properties)
+  // These are schemas like { anyOf: [{ $ref: "a.json" }, { $ref: "b.json" }] }
+  // The concrete types should be used instead
+  if (Array.isArray(schemaObj.anyOf) && !schemaObj.properties && !schemaObj.allOf) {
+    // It's purely a type union, not a concrete type
+    return true;
+  }
+  
+  if (Array.isArray(schemaObj.oneOf) && !schemaObj.properties && !schemaObj.allOf) {
+    // It's purely a type union, not a concrete type
+    return true;
+  }
+  
+  // Check if it has allOf but no properties defined (just type composition without adding anything)
+  if (Array.isArray(schemaObj.allOf)) {
+    const hasOwnProperties = schemaObj.allOf.some((sub: any) => 
+      sub.properties && Object.keys(sub.properties).length > 0
+    );
+    if (!hasOwnProperties) {
+      return true;
+    }
+  }
+  
+  return false;
 }
