@@ -1,12 +1,15 @@
 /**
- * Data Model Export
+ * Data Model Export & Import
  * 
  * Converts builder state (nodes and edges) to JSON data.
  * Each node becomes a JSON object, connections become nested objects or array items.
+ * 
+ * Also provides import functionality to convert JSON data back to nodes and edges.
  */
 
 import type { Node, Edge } from 'reactflow';
 import { getSchemaConnectionRules } from './schemaRelationships';
+import { generateInstanceId } from './builderTypes';
 
 /**
  * Options for exporting the data model
@@ -275,4 +278,388 @@ export function downloadFile(content: string, filename: string, mimeType: string
   document.body.removeChild(link);
   
   URL.revokeObjectURL(url);
+}
+
+// ============================================================================
+// IMPORT FUNCTIONALITY
+// ============================================================================
+
+/**
+ * Result of import validation
+ */
+export interface ImportValidationResult {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+  matchedSchema?: string;  // The schema path that matches the data
+}
+
+/**
+ * Result of importing JSON data
+ */
+export interface ImportResult {
+  success: boolean;
+  nodes: Node[];
+  edges: Edge[];
+  errors: string[];
+}
+
+/**
+ * Find a schema that matches the given data object
+ * Checks required properties and type compatibility
+ */
+function findMatchingSchema(
+  data: Record<string, any>,
+  schemas: Record<string, object>
+): { schemaPath: string; score: number } | null {
+  const dataKeys = Object.keys(data).filter(k => !k.startsWith('_')); // Ignore metadata keys
+  let bestMatch: { schemaPath: string; score: number } | null = null;
+
+  for (const [schemaPath, schema] of Object.entries(schemas)) {
+    const schemaObj = schema as Record<string, any>;
+    
+    if (!schemaObj.properties || schemaObj.type !== 'object') {
+      continue;
+    }
+
+    const schemaProps = Object.keys(schemaObj.properties);
+    const requiredProps = (schemaObj.required as string[]) || [];
+    
+    // Check if all required properties are present
+    const hasAllRequired = requiredProps.every(prop => prop in data);
+    if (!hasAllRequired) {
+      continue;
+    }
+    
+    // Score based on matching properties
+    const matchingProps = dataKeys.filter(key => schemaProps.includes(key));
+    const score = matchingProps.length / Math.max(dataKeys.length, schemaProps.length);
+    
+    if (!bestMatch || score > bestMatch.score) {
+      bestMatch = { schemaPath, score };
+    }
+  }
+  
+  // Require at least 50% property match
+  return bestMatch && bestMatch.score >= 0.5 ? bestMatch : null;
+}
+
+/**
+ * Validate a value against a schema property definition
+ */
+function validateValue(value: any, propDef: Record<string, any>): boolean {
+  if (value === null || value === undefined) {
+    return true; // Allow null/undefined for optional fields
+  }
+
+  const type = propDef.type;
+  
+  switch (type) {
+    case 'string':
+      return typeof value === 'string';
+    case 'number':
+    case 'integer':
+      return typeof value === 'number';
+    case 'boolean':
+      return typeof value === 'boolean';
+    case 'array':
+      return Array.isArray(value);
+    case 'object':
+      return typeof value === 'object' && !Array.isArray(value);
+    default:
+      return true; // Unknown type, allow
+  }
+}
+
+/**
+ * Validate that JSON data conforms to a specific schema
+ */
+export function validateDataAgainstSchema(
+  data: Record<string, any>,
+  schemaPath: string,
+  schemas: Record<string, object>
+): ImportValidationResult {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  
+  const schema = schemas[schemaPath] as Record<string, any>;
+  if (!schema) {
+    return { valid: false, errors: [`Schema not found: ${schemaPath}`], warnings };
+  }
+
+  if (schema.type !== 'object' || !schema.properties) {
+    return { valid: false, errors: ['Schema is not an object type'], warnings };
+  }
+
+  const schemaProps = schema.properties as Record<string, any>;
+  const requiredProps = (schema.required as string[]) || [];
+  
+  // Check required properties
+  for (const reqProp of requiredProps) {
+    if (!(reqProp in data)) {
+      errors.push(`Missing required property: ${reqProp}`);
+    }
+  }
+  
+  // Validate property types
+  for (const [key, value] of Object.entries(data)) {
+    if (key.startsWith('_')) continue; // Skip metadata
+    
+    const propDef = schemaProps[key];
+    if (!propDef) {
+      warnings.push(`Unknown property: ${key}`);
+      continue;
+    }
+    
+    // Skip $ref properties - they will be handled as connections
+    if (propDef.$ref) continue;
+    if (propDef.type === 'array' && propDef.items?.$ref) continue;
+    
+    if (!validateValue(value, propDef)) {
+      errors.push(`Property '${key}' has invalid type. Expected ${propDef.type}, got ${typeof value}`);
+    }
+  }
+  
+  return {
+    valid: errors.length === 0,
+    errors,
+    warnings,
+    matchedSchema: schemaPath,
+  };
+}
+
+/**
+ * Validate imported JSON data against available schemas
+ */
+export function validateImportData(
+  data: any,
+  schemas: Record<string, object>
+): ImportValidationResult {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  
+  if (!data || typeof data !== 'object') {
+    return { valid: false, errors: ['Invalid JSON: Expected an object'], warnings };
+  }
+  
+  // Handle array of objects
+  if (Array.isArray(data)) {
+    if (data.length === 0) {
+      return { valid: false, errors: ['Empty array - nothing to import'], warnings };
+    }
+    
+    // Validate each item
+    for (let i = 0; i < data.length; i++) {
+      const item = data[i];
+      if (!item || typeof item !== 'object' || Array.isArray(item)) {
+        errors.push(`Item ${i}: Not a valid object`);
+        continue;
+      }
+      
+      const match = findMatchingSchema(item, schemas);
+      if (!match) {
+        errors.push(`Item ${i}: No matching schema found`);
+      } else if (match.score < 0.8) {
+        warnings.push(`Item ${i}: Partial schema match (${Math.round(match.score * 100)}%)`);
+      }
+    }
+    
+    return { valid: errors.length === 0, errors, warnings };
+  }
+  
+  // Single object
+  const match = findMatchingSchema(data, schemas);
+  if (!match) {
+    return { valid: false, errors: ['No matching schema found for the data'], warnings };
+  }
+  
+  // Validate against matched schema
+  const validation = validateDataAgainstSchema(data, match.schemaPath, schemas);
+  
+  if (match.score < 0.8) {
+    validation.warnings.push(`Partial schema match (${Math.round(match.score * 100)}%)`);
+  }
+  
+  return validation;
+}
+
+/**
+ * Import JSON data and create nodes and edges
+ */
+export function importFromJson(
+  data: any,
+  schemas: Record<string, object>,
+  startPosition: { x: number; y: number } = { x: 100, y: 100 }
+): ImportResult {
+  const nodes: Node[] = [];
+  const edges: Edge[] = [];
+  const errors: string[] = [];
+  
+  // Track created instances by their position in the data
+  const instanceMap = new Map<any, string>(); // data object -> instance ID
+  let nodeIndex = 0;
+  
+  const NODE_WIDTH = 320;
+  const NODE_HEIGHT = 200;
+  const HORIZONTAL_GAP = 100;
+  const VERTICAL_GAP = 80;
+  
+  /**
+   * Create a node from data object
+   */
+  function createNodeFromData(
+    dataObj: Record<string, any>,
+    position: { x: number; y: number },
+    parentId?: string,
+    propertyPath?: string
+  ): string | null {
+    // Check if we already created this instance
+    if (instanceMap.has(dataObj)) {
+      const existingId = instanceMap.get(dataObj)!;
+      // Create edge to existing instance
+      if (parentId && propertyPath) {
+        const edgeId = `e-${parentId}-${existingId}-${propertyPath}`;
+        if (!edges.find(e => e.id === edgeId)) {
+          edges.push(createEdge(edgeId, parentId, existingId, propertyPath, false));
+        }
+      }
+      return existingId;
+    }
+    
+    // Find matching schema
+    const match = findMatchingSchema(dataObj, schemas);
+    if (!match) {
+      errors.push(`Could not find matching schema for object: ${JSON.stringify(dataObj).slice(0, 100)}...`);
+      return null;
+    }
+    
+    const schemaPath = match.schemaPath;
+    const schema = schemas[schemaPath] as Record<string, any>;
+    const instanceId = generateInstanceId(schemaPath);
+    
+    instanceMap.set(dataObj, instanceId);
+    
+    // Extract schema info
+    const schemaTitle = schema.title || schemaPath.split('/').pop()?.replace('.schema.json', '') || 'Unknown';
+    
+    // Separate values from nested objects
+    const values: Record<string, any> = {};
+    const connectionRules = getSchemaConnectionRules(schema, schemaPath);
+    const refProps = new Set(connectionRules.map(r => r.propertyPath));
+    
+    for (const [key, value] of Object.entries(dataObj)) {
+      if (key.startsWith('_')) continue; // Skip metadata
+      if (!refProps.has(key)) {
+        values[key] = value;
+      }
+    }
+    
+    // Create the node
+    const node: Node = {
+      id: instanceId,
+      type: 'builderNode',
+      position: {
+        x: position.x,
+        y: position.y,
+      },
+      data: {
+        instanceId,
+        schemaPath,
+        schemaTitle,
+        values,
+      },
+    };
+    
+    nodes.push(node);
+    nodeIndex++;
+    
+    // Create edge from parent
+    if (parentId && propertyPath) {
+      const isArray = connectionRules.find(r => r.propertyPath === propertyPath)?.cardinality === 'many';
+      const edgeId = `e-${parentId}-${instanceId}-${propertyPath}`;
+      edges.push(createEdge(edgeId, parentId, instanceId, propertyPath, isArray));
+    }
+    
+    // Process nested objects (connections)
+    let childIndex = 0;
+    for (const rule of connectionRules) {
+      const nestedValue = dataObj[rule.propertyPath];
+      if (nestedValue === null || nestedValue === undefined) continue;
+      
+      const childX = position.x + NODE_WIDTH + HORIZONTAL_GAP;
+      
+      if (rule.cardinality === 'one' && typeof nestedValue === 'object' && !Array.isArray(nestedValue)) {
+        // Single nested object
+        const childY = position.y + (childIndex * (NODE_HEIGHT + VERTICAL_GAP));
+        createNodeFromData(nestedValue, { x: childX, y: childY }, instanceId, rule.propertyPath);
+        childIndex++;
+      } else if (rule.cardinality === 'many' && Array.isArray(nestedValue)) {
+        // Array of nested objects
+        for (let i = 0; i < nestedValue.length; i++) {
+          const item = nestedValue[i];
+          if (typeof item === 'object' && item !== null) {
+            const childY = position.y + ((childIndex + i) * (NODE_HEIGHT + VERTICAL_GAP));
+            createNodeFromData(item, { x: childX, y: childY }, instanceId, rule.propertyPath);
+          }
+        }
+        childIndex += nestedValue.length;
+      }
+    }
+    
+    return instanceId;
+  }
+  
+  /**
+   * Create an edge with proper styling
+   */
+  function createEdge(id: string, source: string, target: string, sourceHandle: string, isArray: boolean): Edge {
+    return {
+      id,
+      source,
+      target,
+      sourceHandle,
+      targetHandle: 'target',
+      type: 'default',
+      animated: false,
+      style: {
+        stroke: isArray ? '#ffa726' : '#61dafb',
+        strokeWidth: 2,
+      },
+      markerEnd: {
+        type: 'arrowclosed' as any,
+        color: isArray ? '#ffa726' : '#61dafb',
+      },
+      label: sourceHandle,
+      labelStyle: {
+        fill: '#ccc',
+        fontSize: 10,
+      },
+      labelBgStyle: {
+        fill: '#1e1e1e',
+        fillOpacity: 0.8,
+      },
+    };
+  }
+  
+  // Process the data
+  if (Array.isArray(data)) {
+    // Multiple root objects
+    let yOffset = startPosition.y;
+    for (const item of data) {
+      if (typeof item === 'object' && item !== null && !Array.isArray(item)) {
+        createNodeFromData(item, { x: startPosition.x, y: yOffset });
+        yOffset += NODE_HEIGHT + VERTICAL_GAP;
+      }
+    }
+  } else {
+    // Single root object
+    createNodeFromData(data, startPosition);
+  }
+  
+  return {
+    success: errors.length === 0,
+    nodes,
+    edges,
+    errors,
+  };
 }

@@ -13,7 +13,7 @@ import ReactFlow, {
   addEdge,
   MarkerType,
 } from 'reactflow';
-import { Trash2, Layout, Download, Boxes } from 'lucide-react';
+import { Trash2, Layout, Download, Upload, Boxes } from 'lucide-react';
 import 'reactflow/dist/style.css';
 import './DataModelBuilder.css';
 import { SchemaPalette } from './SchemaPalette';
@@ -32,7 +32,7 @@ import {
   getValidSources,
 } from '../utils/connectionValidator';
 import { getSchemaConnectionRules } from '../utils/schemaRelationships';
-import { exportToJson, downloadFile } from '../utils/dataModelExport';
+import { exportToJson, downloadFile, validateImportData, importFromJson } from '../utils/dataModelExport';
 import {
   saveBuilderState,
   loadBuilderState,
@@ -57,6 +57,7 @@ export const DataModelBuilder: React.FC<DataModelBuilderProps> = ({ schemas }) =
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null);
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [isInitialized, setIsInitialized] = useState(false);
   
   // State for tracking connections during drag
@@ -470,6 +471,67 @@ export const DataModelBuilder: React.FC<DataModelBuilderProps> = ({ schemas }) =
     }
   }, [nodes, edges, schemas]);
 
+  // Handle Import JSON button click
+  const handleImportClick = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  // Handle file selection for import
+  const handleFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const content = e.target?.result as string;
+        const jsonData = JSON.parse(content);
+
+        // Validate the data first
+        const validation = validateImportData(jsonData, schemas);
+        
+        if (!validation.valid) {
+          const errorMsg = validation.errors.join('\n');
+          alert(`Import validation failed:\n${errorMsg}`);
+          return;
+        }
+        
+        if (validation.warnings.length > 0) {
+          console.warn('Import warnings:', validation.warnings);
+        }
+
+        // Import the data
+        const result = importFromJson(jsonData, schemas);
+        
+        if (!result.success) {
+          const errorMsg = result.errors.join('\n');
+          alert(`Import partially failed:\n${errorMsg}`);
+        }
+
+        if (result.nodes.length > 0) {
+          // Add the new nodes and edges to existing ones
+          setNodes((nds) => [...nds, ...result.nodes]);
+          setEdges((eds) => [...eds, ...result.edges]);
+          
+          // Fit view to show all nodes
+          setTimeout(() => {
+            reactFlowInstance?.fitView({ padding: 0.2 });
+          }, 50);
+          
+          console.log(`Imported ${result.nodes.length} nodes and ${result.edges.length} edges`);
+        }
+      } catch (error) {
+        console.error('Failed to import JSON:', error);
+        alert('Failed to parse JSON file. Please ensure it is valid JSON.');
+      }
+    };
+
+    reader.readAsText(file);
+    
+    // Reset the input so the same file can be selected again
+    event.target.value = '';
+  }, [schemas, setNodes, setEdges, reactFlowInstance]);
+
   const onInit = useCallback((instance: ReactFlowInstance) => {
     setReactFlowInstance(instance);
   }, []);
@@ -612,6 +674,14 @@ export const DataModelBuilder: React.FC<DataModelBuilderProps> = ({ schemas }) =
 
   return (
     <div className="data-model-builder">
+      {/* Hidden file input for import */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".json,application/json"
+        style={{ display: 'none' }}
+        onChange={handleFileChange}
+      />
       <div className="builder-toolbar">
         <span className="builder-toolbar-title">Data Model Builder</span>
         <div className="builder-toolbar-divider" />
@@ -632,6 +702,14 @@ export const DataModelBuilder: React.FC<DataModelBuilderProps> = ({ schemas }) =
         >
           <Layout size={16} />
           Auto Layout
+        </button>
+        <button
+          className="builder-toolbar-btn"
+          onClick={handleImportClick}
+          title="Import JSON data into builder"
+        >
+          <Upload size={16} />
+          Import JSON
         </button>
         <button
           className="builder-toolbar-btn"
