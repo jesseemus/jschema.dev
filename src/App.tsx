@@ -7,8 +7,10 @@ import {
 } from 'reactflow';
 import { JsonEditor, MultiSchemaEditor } from './components/Editor';
 import { Visualizer } from './components/Visualizer';
+import { DataModelBuilder } from './components/DataModelBuilder';
 import { SchemaNode } from './components/SchemaNode';
 import { Layout, Loader2, X, ChevronLeft, ChevronRight, Home, ArrowDown, Download, Upload } from 'lucide-react';
+import { ViewTabs } from './components/ViewTabs';
 import JSZip from 'jszip';
 import './App.css';
 import { schemaToGraph, layoutGraph } from './utils/graphUtils';
@@ -60,7 +62,7 @@ function App() {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEntityType, setSelectedEntityType] = useState<string | null>(null);
   const [isEditorMinimized, setIsEditorMinimized] = useState(window.innerWidth <= 768);
-  const [viewMode, setViewMode] = useState<'single' | 'multi'>('multi');
+  const [viewMode, setViewMode] = useState<'single' | 'multi' | 'builder'>('multi');
   const [selectedSchemaPath, setSelectedSchemaPath] = useState<string | null>(null);
   const reactFlowInstance = useRef<ReactFlowInstance | null>(null);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
@@ -71,7 +73,7 @@ function App() {
     schema: string;
     nodes: Node[];
     edges: any[];
-    viewMode: 'single' | 'multi';
+    viewMode: 'single' | 'multi' | 'builder';
     schemasMap?: Map<string, any>;
     allRelationships?: SchemaRelationship[];
   };
@@ -159,6 +161,13 @@ function App() {
       updateGraph(schema);
     }
   }, [schema, updateGraph, viewMode]);
+
+  // Auto-minimize editor when entering Builder mode
+  useEffect(() => {
+    if (viewMode === 'builder') {
+      setIsEditorMinimized(true);
+    }
+  }, [viewMode]);
 
   // Load example schemas on startup (if no URL param)
   useEffect(() => {
@@ -854,7 +863,12 @@ function App() {
   const handleDragEnter = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     dragCounterRef.current++;
-    if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+    
+    // Only show drop overlay for external file drops, not internal schema-path drags
+    const hasFiles = e.dataTransfer.types.includes('Files');
+    const isInternalDrag = e.dataTransfer.types.includes('application/schema-path');
+    
+    if (hasFiles && !isInternalDrag && e.dataTransfer.items && e.dataTransfer.items.length > 0) {
       setIsDraggingOver(true);
     }
   }, []);
@@ -1015,6 +1029,11 @@ function App() {
             </div>
           )}
         </div>
+        <ViewTabs
+          activeView={viewMode}
+          onViewChange={setViewMode}
+          disabled={loading}
+        />
         <div className="actions">
           <a
             href="https://github.com/jesseemus/jschema.dev"
@@ -1181,21 +1200,27 @@ function App() {
           )}
         </div>
         <div className="visualizer-pane">
-          <Visualizer
-            nodes={nodes}
-            edges={highlightedEdges}
-            onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
-            nodeTypes={nodeTypes}
-            onNodeClick={handleNodeClick}
-            onPaneClick={handlePaneClick}
-            onInit={(instance) => { reactFlowInstance.current = instance; }}
-            selectedEntityType={selectedEntityType}
-            onEntityTypeClick={(entityType) => {
-              setSelectedNodeId(null);
-              setSelectedEntityType(entityType === selectedEntityType ? null : entityType);
-            }}
-          />
+          {viewMode === 'builder' ? (
+            <DataModelBuilder
+              schemas={Object.fromEntries(schemasMap)}
+            />
+          ) : (
+            <Visualizer
+              nodes={nodes}
+              edges={highlightedEdges}
+              onNodesChange={onNodesChange}
+              onEdgesChange={onEdgesChange}
+              nodeTypes={nodeTypes}
+              onNodeClick={handleNodeClick}
+              onPaneClick={handlePaneClick}
+              onInit={(instance) => { reactFlowInstance.current = instance; }}
+              selectedEntityType={selectedEntityType}
+              onEntityTypeClick={(entityType) => {
+                setSelectedNodeId(null);
+                setSelectedEntityType(entityType === selectedEntityType ? null : entityType);
+              }}
+            />
+          )}
         </div>
       </main>
 

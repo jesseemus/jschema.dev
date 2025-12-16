@@ -1,0 +1,319 @@
+/* BuilderNode - Custom ReactFlow node for Data Model Builder */
+
+.builder-node {
+  min-width: 200px;
+  width: 240px;
+  border: 2px solid #61dafb;
+  border-radius: 8px;
+  background-color: #252526;
+  color: #e0e0e0;
+  font-size: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  transition: box-shadow 0.2s ease, border-color 0.2s ease, transform 0.15s ease;
+  overflow: visible;
+}
+
+.builder-node:hover {
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.5);
+}
+
+.builder-node.selected {
+  border-color: #61dafb;
+  box-shadow: 0 0 0 2px rgba(97, 218, 251, 0.3), 0 6px 16px rgba(0, 0, 0, 0.5);
+}
+
+.builder-node.valid-target {
+  border-color: #4caf50;
+  box-shadow: 0 0 12px rgba(76, 175, 80, 0.5), 0 6px 16px rgba(0, 0, 0, 0.5);
+  animation: pulse-valid 1s ease-in-out infinite;
+}
+
+@keyframes pulse-valid {
+  0%, 100% {
+    box-shadow: 0 0 12px rgba(76, 175, 80, 0.5), 0 6px 16px rgba(0, 0, 0, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(76, 175, 80, 0.7), 0 6px 16px rgba(0, 0, 0, 0.5);
+  }
+}
+
+/* Node header */
+.builder-node-header {
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.builder-node-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: #fff;
+}
+
+.builder-node-instance {
+  font-size: 11px;
+  color: #888;
+  font-weight: 400;
+  flex: 1;
+}
+
+.builder-node-delete {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 4px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #aaa;
+  opacity: 0;
+  transition: all 0.15s ease;
+}
+
+.builder-node:hover .builder-node-delete {
+  opacity: 1;
+}
+
+.builder-node-delete:hover {
+  background-color: rgba(255, 100, 100, 0.3);
+  border-color: rgba(255, 100, 100, 0.5);
+  color: #ff6b6b;
+}
+
+.builder-node-delete:active {
+  transform: scale(0.9);
+}
+
+/* Properties section */
+.builder-node-properties {
+  padding: 8px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Input fields section */
+.builder-node-inputs {
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.builder-node-input-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.input-label {
+  font-size: 10px;
+  color: #888;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.input-label.required {
+  color: #aaa;
+}
+
+.builder-input {
+  width: 100%;
+  padding: 5px 8px;
+  font-size: 11px;
+  border: 1px solid #444;
+  border-radius: 4px;
+  background-color: #1a1a1a;
+  color: #e0e0e0;
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  box-sizing: border-box;
+}
+
+.builder-input:focus {
+  border-color: #61dafb;
+  box-shadow: 0 0 0 2px rgba(97, 218, 251, 0.2);
+}
+
+.builder-input::placeholder {
+  color: #555;
+  font-style: italic;
+}
+
+.builder-select {
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+  padding-right: 24px;
+  box-sizing: border-box;
+}
+
+.builder-select:focus {
+  border-color: #61dafb;
+}
+
+/* Number input hide spinners */
+.builder-input[type="number"]::-webkit-inner-spin-button,
+.builder-input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0;
+}
+
+.builder-input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.builder-node-property {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 8px 12px;
+  position: relative;
+  min-height: 20px;
+}
+
+.property-label {
+  flex: 1;
+  text-align: right;
+  padding-right: 12px;
+  color: #aaa;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  transition: color 0.2s ease;
+}
+
+.property-label.required {
+  color: #e0e0e0;
+}
+
+.property-label.connected {
+  color: #61dafb;
+}
+
+.property-array-indicator {
+  font-size: 10px;
+  color: #888;
+  margin-left: 2px;
+}
+
+.property-required-indicator {
+  color: #ff6b6b;
+  font-weight: bold;
+  margin-left: 2px;
+}
+
+/* No refs message */
+.builder-node-no-refs {
+  padding: 8px 12px;
+  text-align: center;
+}
+
+.no-refs-text {
+  font-size: 10px;
+  color: #666;
+  font-style: italic;
+}
+
+/* Handle styling */
+.builder-handle {
+  width: 12px !important;
+  height: 12px !important;
+  border: 2px solid #555 !important;
+  background-color: #333 !important;
+  transition: all 0.2s ease !important;
+}
+
+.builder-handle:hover {
+  border-color: #61dafb !important;
+  background-color: #61dafb !important;
+  box-shadow: 0 0 6px rgba(97, 218, 251, 0.6);
+}
+
+/* Target handle - left side */
+.builder-handle.target-handle {
+  left: -7px !important;
+  border-radius: 50% !important;
+  background-color: #2a2a2a !important;
+  border-color: #666 !important;
+}
+
+.builder-handle.target-handle:hover {
+  border-color: #4caf50 !important;
+  background-color: #4caf50 !important;
+}
+
+.builder-handle.target-handle.valid-target {
+  border-color: #4caf50 !important;
+  background-color: #4caf50 !important;
+  animation: pulse-handle 0.8s ease-in-out infinite;
+}
+
+@keyframes pulse-handle {
+  0%, 100% {
+    box-shadow: 0 0 4px rgba(76, 175, 80, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 10px rgba(76, 175, 80, 0.9);
+  }
+}
+
+/* Source handle - right side */
+.builder-handle.source-handle {
+  right: -9px !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+  border-radius: 50% !important;  z-index: 10 !important;}
+
+.builder-handle.source-handle.single {
+  background-color: #2a2a2a !important;
+  border-color: #61dafb !important;
+}
+
+.builder-handle.source-handle.array {
+  background-color: #2a2a2a !important;
+  border-color: #ffa726 !important;
+  border-radius: 3px !important;
+}
+
+.builder-handle.source-handle.connected {
+  background-color: #61dafb !important;
+  border-color: #61dafb !important;
+}
+
+.builder-handle.source-handle.array.connected {
+  background-color: #ffa726 !important;
+  border-color: #ffa726 !important;
+}
+
+.builder-handle.source-handle:hover {
+  box-shadow: 0 0 6px rgba(97, 218, 251, 0.6);
+}
+
+/* Connection line styles (applied via ReactFlow) */
+.react-flow__edge-path {
+  stroke-width: 2;
+}
+
+.react-flow__edge.animated path {
+  stroke-dasharray: 5;
+  animation: dash 0.5s linear infinite;
+}
+
+@keyframes dash {
+  to {
+    stroke-dashoffset: -10;
+  }
+}
