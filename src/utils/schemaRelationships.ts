@@ -18,6 +18,175 @@ export interface ConnectionRule {
     required: boolean;         // if the property is in schema.required
 }
 
+/**
+ * Extract properties from a schema, including those inside allOf compositions
+ */
+export const getSchemaProperties = (schema: any): Record<string, any> => {
+    let properties: Record<string, any> = {};
+    
+    if (!schema || typeof schema !== 'object') return properties;
+    
+    // Direct properties
+    if (schema.properties && typeof schema.properties === 'object') {
+        properties = { ...properties, ...schema.properties };
+    }
+    
+    // Properties inside allOf
+    if (Array.isArray(schema.allOf)) {
+        for (const subSchema of schema.allOf) {
+            if (subSchema.properties && typeof subSchema.properties === 'object') {
+                properties = { ...properties, ...subSchema.properties };
+            }
+        }
+    }
+    
+    return properties;
+};
+
+/**
+ * Get the type of a schema, checking allOf for inherited types
+ */
+export const getSchemaType = (schema: any): string | undefined => {
+    if (!schema || typeof schema !== 'object') return undefined;
+    
+    // Direct type
+    if (schema.type) return schema.type;
+    
+    // Check allOf for type
+    if (Array.isArray(schema.allOf)) {
+        for (const subSchema of schema.allOf) {
+            if (subSchema.type) return subSchema.type;
+            // Also check $ref to primitives like object.schema.json, array.schema.json
+            if (subSchema.$ref) {
+                if (subSchema.$ref.includes('object')) return 'object';
+                if (subSchema.$ref.includes('array')) return 'array';
+                if (subSchema.$ref.includes('string')) return 'string';
+                if (subSchema.$ref.includes('number') || subSchema.$ref.includes('integer')) return 'number';
+                if (subSchema.$ref.includes('boolean')) return 'boolean';
+            }
+        }
+    }
+    
+    return undefined;
+};
+
+/**
+ * Check if a schema path refers to a primitive type schema
+ * These should not be treated as connection targets
+ */
+const isPrimitiveSchemaPath = (schemaPath: string): boolean => {
+    const lowerPath = schemaPath.toLowerCase();
+    // Check for primitive type indicators in the path
+    const primitivePatterns = [
+        '/primitives/',
+        '/string.schema.json',
+        '/integer.schema.json',
+        '/number.schema.json',
+        '/boolean.schema.json',
+        '/binary-flag.schema.json',
+        '/numeric-string.schema.json',
+        '/non-empty-string.schema.json',
+        '/positive-integer.schema.json',
+        '/short-code-string.schema.json',
+        '/datatype.schema.json',
+        '/datatype-enum.schema.json',
+    ];
+    
+    for (const pattern of primitivePatterns) {
+        if (lowerPath.includes(pattern.toLowerCase())) {
+            return true;
+        }
+    }
+    
+    // Also check if the schema name itself suggests a primitive
+    // (e.g., accessoryId.schema.json, variableName.schema.json are likely just strings)
+    const fileName = schemaPath.split('/').pop()?.toLowerCase() || '';
+    const singleFieldPatterns = [
+        'id.schema.json',
+        'name.schema.json',
+        'description.schema.json',
+        'key.schema.json',
+        'value.schema.json',
+    ];
+    
+    for (const pattern of singleFieldPatterns) {
+        if (fileName.endsWith(pattern)) {
+            return true;
+        }
+    }
+    
+    return false;
+};
+
+/**
+ * Check if a resolved schema is a primitive type by examining its content
+ */
+export const isPrimitiveSchema = (schema: any): boolean => {
+    if (!schema || typeof schema !== 'object') return false;
+    
+    // Direct primitive type
+    const primitiveTypes = ['string', 'number', 'integer', 'boolean', 'null'];
+    if (primitiveTypes.includes(schema.type)) {
+        return true;
+    }
+    
+    // Check if it's just a $ref to a primitive
+    if (schema.$ref && typeof schema.$ref === 'string') {
+        return isPrimitiveSchemaPath(schema.$ref);
+    }
+    
+    // Check allOf - if it only references primitives
+    if (Array.isArray(schema.allOf)) {
+        // If any allOf entry has items with $ref, this is an array collection schema, not primitive
+        const hasItemsRef = schema.allOf.some((s: any) => s.items?.$ref);
+        if (hasItemsRef) {
+            return false;
+        }
+        
+        const hasObjectProperties = schema.allOf.some((s: any) => s.properties);
+        if (!hasObjectProperties) {
+            // Check if all refs are to primitives
+            const allPrimitive = schema.allOf.every((s: any) => {
+                if (s.$ref) return isPrimitiveSchemaPath(s.$ref);
+                if (s.type) return primitiveTypes.includes(s.type);
+                return true;
+            });
+            if (allPrimitive) return true;
+        }
+    }
+    
+    return false;
+};
+
+/**
+ * Check if a schema is an array schema with items.$ref (collection of complex types)
+ * This includes schemas using allOf with array primitives + items definition
+ */
+const isArraySchemaWithItems = (schema: any): boolean => {
+    if (!schema || typeof schema !== 'object') return false;
+    
+    // Direct array with items.$ref
+    if (schema.type === 'array' && schema.items?.$ref) {
+        return true;
+    }
+    
+    // Direct items.$ref
+    if (schema.items?.$ref) {
+        return true;
+    }
+    
+    // Check allOf for items.$ref (pattern: allOf with array primitive + items definition)
+    if (Array.isArray(schema.allOf)) {
+        for (const sub of schema.allOf) {
+            if (sub.items?.$ref) {
+                return true;
+            }
+        }
+    }
+    
+    return false;
+};
+
 const resolveRelativePath = (basePath: string, relativePath: string): string => {
     const baseDir = basePath.substring(0, basePath.lastIndexOf('/'));
 
@@ -38,18 +207,20 @@ const resolveRelativePath = (basePath: string, relativePath: string): string => 
 
 /**
  * Extract connection rules from a schema's $ref properties
+ * Only includes refs to complex object schemas, not primitive types
  * @param schema - The schema object to analyze
  * @param schemaPath - The path of the schema (used to resolve relative $refs)
+ * @param schemas - Optional map of all loaded schemas (used to check if ref target is primitive)
  * @returns Array of ConnectionRule objects describing allowed connections
  */
-export const getSchemaConnectionRules = (schema: any, schemaPath: string): ConnectionRule[] => {
+export const getSchemaConnectionRules = (schema: any, schemaPath: string, schemas?: Record<string, any>): ConnectionRule[] => {
     const rules: ConnectionRule[] = [];
     const requiredFields = new Set<string>(schema.required || []);
 
     const processProperty = (propName: string, propValue: any): void => {
         if (!propValue || typeof propValue !== 'object') return;
 
-        // Direct $ref (one-to-one)
+        // Direct $ref (could be one-to-one or one-to-many if ref is to an array schema)
         if (propValue.$ref && typeof propValue.$ref === 'string') {
             const match = propValue.$ref.match(/^([^#]+)/);
             if (match && match[1] && match[1].endsWith('.json')) {
@@ -59,6 +230,42 @@ export const getSchemaConnectionRules = (schema: any, schemaPath: string): Conne
                 } else if (!refPath.includes('/')) {
                     const baseDir = schemaPath.substring(0, schemaPath.lastIndexOf('/'));
                     refPath = baseDir ? `${baseDir}/${refPath}` : refPath;
+                }
+
+                // Skip if this is a reference to a primitive schema
+                if (isPrimitiveSchemaPath(refPath)) {
+                    return;
+                }
+                
+                // Check the actual schema content if available
+                // Try to find the schema - it might be keyed with or without base path
+                let refSchema = schemas?.[refPath];
+                if (!refSchema && schemas) {
+                    // Try finding by matching the end of the path
+                    const matchingKey = Object.keys(schemas).find(key => 
+                        key.endsWith(refPath) || refPath.endsWith(key)
+                    );
+                    if (matchingKey) {
+                        refSchema = schemas[matchingKey];
+                        refPath = matchingKey; // Use the actual key
+                    }
+                }
+                
+                if (refSchema) {
+                    if (isPrimitiveSchema(refSchema)) {
+                        return;
+                    }
+                    
+                    // Check if the referenced schema is an array schema (has items.$ref in allOf or directly)
+                    if (isArraySchemaWithItems(refSchema)) {
+                        rules.push({
+                            propertyPath: propName,
+                            targetSchemaPath: refPath,
+                            cardinality: 'many',
+                            required: requiredFields.has(propName)
+                        });
+                        return;
+                    }
                 }
 
                 rules.push({
@@ -84,6 +291,18 @@ export const getSchemaConnectionRules = (schema: any, schemaPath: string): Conne
                         refPath = baseDir ? `${baseDir}/${refPath}` : refPath;
                     }
 
+                    // Skip if this is a reference to a primitive schema
+                    if (isPrimitiveSchemaPath(refPath)) {
+                        return;
+                    }
+                    
+                    // Also check the actual schema content if available
+                    if (schemas && schemas[refPath]) {
+                        if (isPrimitiveSchema(schemas[refPath])) {
+                            return;
+                        }
+                    }
+
                     rules.push({
                         propertyPath: propName,
                         targetSchemaPath: refPath,
@@ -93,14 +312,84 @@ export const getSchemaConnectionRules = (schema: any, schemaPath: string): Conne
                 }
             }
         }
+
+        // Object with patternProperties containing $ref (one-to-many, keyed by UUID or other pattern)
+        if (propValue.type === 'object' && propValue.patternProperties) {
+            // Get the first pattern property that has a $ref
+            for (const pattern of Object.keys(propValue.patternProperties)) {
+                const patternDef = propValue.patternProperties[pattern];
+                if (patternDef.$ref && typeof patternDef.$ref === 'string') {
+                    const match = patternDef.$ref.match(/^([^#]+)/);
+                    if (match && match[1] && match[1].endsWith('.json')) {
+                        let refPath = match[1];
+                        if (refPath.startsWith('../') || refPath.startsWith('./')) {
+                            refPath = resolveRelativePath(schemaPath, refPath);
+                        } else if (!refPath.includes('/')) {
+                            const baseDir = schemaPath.substring(0, schemaPath.lastIndexOf('/'));
+                            refPath = baseDir ? `${baseDir}/${refPath}` : refPath;
+                        }
+
+                        // Skip if this is a reference to a primitive schema
+                        if (isPrimitiveSchemaPath(refPath)) {
+                            continue;
+                        }
+                        
+                        // Also check the actual schema content if available
+                        let actualRefPath = refPath;
+                        let refSchema = schemas?.[refPath];
+                        if (!refSchema && schemas) {
+                            const matchingKey = Object.keys(schemas).find(key => 
+                                key.endsWith(refPath) || refPath.endsWith(key)
+                            );
+                            if (matchingKey) {
+                                refSchema = schemas[matchingKey];
+                                actualRefPath = matchingKey;
+                            }
+                        }
+                        
+                        if (refSchema && isPrimitiveSchema(refSchema)) {
+                            continue;
+                        }
+
+                        rules.push({
+                            propertyPath: propName,
+                            targetSchemaPath: actualRefPath,
+                            cardinality: 'many',
+                            required: requiredFields.has(propName)
+                        });
+                        break; // Only use first matching pattern
+                    }
+                }
+            }
+        }
     };
 
-    // Process top-level properties
-    if (schema.properties && typeof schema.properties === 'object') {
-        Object.entries(schema.properties).forEach(([propName, propValue]) => {
-            processProperty(propName, propValue);
-        });
-    }
+    // Helper to extract properties from a schema, including allOf compositions
+    const getSchemaProperties = (schemaObj: any): Record<string, any> => {
+        let properties: Record<string, any> = {};
+        
+        // Direct properties
+        if (schemaObj.properties && typeof schemaObj.properties === 'object') {
+            properties = { ...properties, ...schemaObj.properties };
+        }
+        
+        // Properties inside allOf
+        if (Array.isArray(schemaObj.allOf)) {
+            for (const subSchema of schemaObj.allOf) {
+                if (subSchema.properties && typeof subSchema.properties === 'object') {
+                    properties = { ...properties, ...subSchema.properties };
+                }
+            }
+        }
+        
+        return properties;
+    };
+
+    // Process properties (including those in allOf)
+    const properties = getSchemaProperties(schema);
+    Object.entries(properties).forEach(([propName, propValue]) => {
+        processProperty(propName, propValue);
+    });
 
     return rules;
 };

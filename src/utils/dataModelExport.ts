@@ -8,7 +8,7 @@
  */
 
 import type { Node, Edge } from 'reactflow';
-import { getSchemaConnectionRules } from './schemaRelationships';
+import { getSchemaConnectionRules, getSchemaProperties, getSchemaType } from './schemaRelationships';
 import { generateInstanceId } from './builderTypes';
 
 /**
@@ -123,7 +123,7 @@ export function buildObjectFromInstance(
   }
   
   // Get connection rules to know which properties are $ref properties
-  const connectionRules = getSchemaConnectionRules(schema, schemaPath);
+  const connectionRules = getSchemaConnectionRules(schema, schemaPath, schemas);
   const refPropertyPaths = new Set(connectionRules.map(rule => rule.propertyPath));
   
   // Get all outgoing connections from this instance
@@ -307,6 +307,7 @@ export interface ImportResult {
 /**
  * Find a schema that matches the given data object
  * Checks required properties and type compatibility
+ * Supports schemas with allOf compositions
  */
 function findMatchingSchema(
   data: Record<string, any>,
@@ -318,11 +319,23 @@ function findMatchingSchema(
   for (const [schemaPath, schema] of Object.entries(schemas)) {
     const schemaObj = schema as Record<string, any>;
     
-    if (!schemaObj.properties || schemaObj.type !== 'object') {
+    // Get schema type (handles allOf with primitive refs)
+    const schemaType = getSchemaType(schemaObj);
+    
+    // Skip if not an object type
+    if (schemaType !== 'object' && schemaType !== undefined) {
+      continue;
+    }
+    
+    // Get properties (handles allOf compositions)
+    const properties = getSchemaProperties(schemaObj);
+    const schemaProps = Object.keys(properties);
+    
+    // Skip schemas with no properties
+    if (schemaProps.length === 0) {
       continue;
     }
 
-    const schemaProps = Object.keys(schemaObj.properties);
     const requiredProps = (schemaObj.required as string[]) || [];
     
     // Check if all required properties are present
@@ -544,7 +557,7 @@ export function importFromJson(
     
     // Separate values from nested objects
     const values: Record<string, any> = {};
-    const connectionRules = getSchemaConnectionRules(schema, schemaPath);
+    const connectionRules = getSchemaConnectionRules(schema, schemaPath, schemas);
     const refProps = new Set(connectionRules.map(r => r.propertyPath));
     
     for (const [key, value] of Object.entries(dataObj)) {

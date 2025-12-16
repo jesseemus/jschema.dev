@@ -32,10 +32,106 @@ export interface ValidationResult {
  * Get connection rules for a schema
  * @param schema - The schema object
  * @param schemaPath - The path of the schema
+ * @param schemas - Optional record of all schemas (needed for resolving array schemas)
  * @returns Array of ConnectionRule objects
  */
-export function getConnectionRulesForSchema(schema: object, schemaPath: string): ConnectionRule[] {
-    return getSchemaConnectionRules(schema, schemaPath);
+export function getConnectionRulesForSchema(schema: object, schemaPath: string, schemas?: Record<string, object>): ConnectionRule[] {
+    return getSchemaConnectionRules(schema, schemaPath, schemas);
+}
+
+/**
+ * Resolve the actual target schema path, following array schemas to their items
+ * @param schemaPath - The schema path to resolve
+ * @param schemas - Record of all schemas
+ * @returns The resolved schema path (e.g., array schema -> items schema)
+ */
+function resolveTargetSchemaPath(schemaPath: string, schemas: Record<string, object>): string[] {
+    let schema = schemas[schemaPath] as Record<string, any>;
+    
+    // Try to find schema with flexible matching if not found directly
+    let actualPath = schemaPath;
+    if (!schema) {
+        const matchingKey = Object.keys(schemas).find(key => 
+            key.endsWith(schemaPath) || schemaPath.endsWith(key)
+        );
+        if (matchingKey) {
+            schema = schemas[matchingKey] as Record<string, any>;
+            actualPath = matchingKey;
+        }
+    }
+    
+    if (!schema) {
+        return [schemaPath];
+    }
+    
+    const results: string[] = [actualPath];
+    
+    // Check if this is an array schema with items.$ref
+    if (schema.items?.$ref) {
+        const itemsRef = resolveRefPath(schema.items.$ref, actualPath);
+        results.push(itemsRef);
+        // Recursively resolve in case of nested arrays
+        results.push(...resolveTargetSchemaPath(itemsRef, schemas));
+    }
+    
+    // Check allOf for array schemas
+    if (Array.isArray(schema.allOf)) {
+        for (const sub of schema.allOf) {
+            if (sub.items?.$ref) {
+                const itemsRef = resolveRefPath(sub.items.$ref, actualPath);
+                results.push(itemsRef);
+                results.push(...resolveTargetSchemaPath(itemsRef, schemas));
+            }
+        }
+    }
+    
+    // Check anyOf - schema can be any of these types
+    if (Array.isArray(schema.anyOf)) {
+        for (const sub of schema.anyOf) {
+            if (sub.$ref) {
+                const anyOfRef = resolveRefPath(sub.$ref, actualPath);
+                results.push(anyOfRef);
+                results.push(...resolveTargetSchemaPath(anyOfRef, schemas));
+            }
+        }
+    }
+    
+    // Check oneOf - schema can be one of these types
+    if (Array.isArray(schema.oneOf)) {
+        for (const sub of schema.oneOf) {
+            if (sub.$ref) {
+                const oneOfRef = resolveRefPath(sub.$ref, actualPath);
+                results.push(oneOfRef);
+                results.push(...resolveTargetSchemaPath(oneOfRef, schemas));
+            }
+        }
+    }
+    
+    return [...new Set(results)]; // Remove duplicates
+}
+
+/**
+ * Resolve a relative $ref path to an absolute path
+ */
+function resolveRefPath(ref: string, basePath: string): string {
+    let refPath = ref.split('#')[0];
+    
+    if (refPath.startsWith('../') || refPath.startsWith('./')) {
+        const baseDir = basePath.substring(0, basePath.lastIndexOf('/'));
+        const baseParts = baseDir.split('/').filter(p => p);
+        const relParts = refPath.split('/').filter(p => p);
+        const resultParts = [...baseParts];
+        for (const part of relParts) {
+            if (part === '..') resultParts.pop();
+            else if (part !== '.') resultParts.push(part);
+        }
+        return resultParts.join('/');
+    } else if (!refPath.includes('/')) {
+        const baseDir = basePath.substring(0, basePath.lastIndexOf('/'));
+        return baseDir ? `${baseDir}/${refPath}` : refPath;
+    }
+    
+    return refPath;
 }
 
 /**
@@ -59,10 +155,20 @@ export function canConnect(
         };
     }
 
-    const rules = getConnectionRulesForSchema(sourceSchema, sourceSchemaPath);
+    const rules = getConnectionRulesForSchema(sourceSchema, sourceSchemaPath, schemas);
     
     // Find a rule that allows connection to the target schema
-    const matchingRule = rules.find(rule => rule.targetSchemaPath === targetSchemaPath);
+    // Check both direct matches and indirect matches through array schemas
+    const matchingRule = rules.find(rule => {
+        // Direct match
+        if (rule.targetSchemaPath === targetSchemaPath) {
+            return true;
+        }
+        
+        // Check if the rule's target is an array schema that contains items of the target type
+        const resolvedTargets = resolveTargetSchemaPath(rule.targetSchemaPath, schemas);
+        return resolvedTargets.includes(targetSchemaPath);
+    });
     
     if (!matchingRule) {
         return {
@@ -123,7 +229,7 @@ export function validateConnection(
         };
     }
 
-    const rules = getConnectionRulesForSchema(sourceSchema, sourceInstance.schemaPath);
+    const rules = getConnectionRulesForSchema(sourceSchema, sourceInstance.schemaPath, schemas);
     
     // Find the rule for the specified property
     const rule = rules.find(r => r.propertyPath === propertyPath);
@@ -135,8 +241,9 @@ export function validateConnection(
         };
     }
 
-    // Check if the target schema matches the rule's target
-    if (rule.targetSchemaPath !== targetInstance.schemaPath) {
+    // Check if the target schema matches the rule's target (including through array schemas)
+    const resolvedTargets = resolveTargetSchemaPath(rule.targetSchemaPath, schemas);
+    if (!resolvedTargets.includes(targetInstance.schemaPath)) {
         return {
             valid: false,
             reason: `Property '${propertyPath}' expects ${rule.targetSchemaPath}, got ${targetInstance.schemaPath}`
@@ -210,12 +317,15 @@ export function getValidTargets(
         return [];
     }
 
-    const rules = getConnectionRulesForSchema(sourceSchema, sourceInstance.schemaPath);
+    const rules = getConnectionRulesForSchema(sourceSchema, sourceInstance.schemaPath, schemas);
     const rule = rules.find(r => r.propertyPath === propertyPath);
     
     if (!rule) {
         return [];
     }
+
+    // Resolve the target schema path (follow array schemas to their items)
+    const resolvedTargets = resolveTargetSchemaPath(rule.targetSchemaPath, schemas);
 
     // For one-to-one cardinality, check if already connected
     if (rule.cardinality === 'one') {
@@ -237,8 +347,8 @@ export function getValidTargets(
             return;
         }
 
-        // Check if instance's schema matches the rule's target
-        if (instance.schemaPath === rule.targetSchemaPath) {
+        // Check if instance's schema matches the rule's target (including through array schemas)
+        if (resolvedTargets.includes(instance.schemaPath)) {
             // For 'many' cardinality, check if this exact connection already exists
             if (rule.cardinality === 'many') {
                 const alreadyConnected = existingConnections.some(
@@ -291,7 +401,7 @@ export function getConnectableProperties(
         return [];
     }
 
-    const rules = getConnectionRulesForSchema(sourceSchema, sourceInstance.schemaPath);
+    const rules = getConnectionRulesForSchema(sourceSchema, sourceInstance.schemaPath, schemas);
     const connectableProperties: string[] = [];
 
     for (const rule of rules) {
@@ -363,11 +473,14 @@ export function getValidSources(
         }
 
         // Get connection rules for this source schema
-        const rules = getConnectionRulesForSchema(sourceSchema, sourceInstance.schemaPath);
+        const rules = getConnectionRulesForSchema(sourceSchema, sourceInstance.schemaPath, schemas);
 
         // Check if any rule points to our target's schema type
         for (const rule of rules) {
-            if (rule.targetSchemaPath === targetSchemaPath) {
+            // Resolve the target schema path (follow array schemas to their items)
+            const resolvedTargets = resolveTargetSchemaPath(rule.targetSchemaPath, schemas);
+            
+            if (resolvedTargets.includes(targetSchemaPath)) {
                 // Check if connection already exists based on cardinality
                 if (rule.cardinality === 'one') {
                     const existingConnection = existingConnections.find(

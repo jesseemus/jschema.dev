@@ -107,7 +107,7 @@ export const DataModelBuilder: React.FC<DataModelBuilderProps> = ({ schemas }) =
         let isArrayConnection = false;
         
         if (sourceData?.schemaPath && schemas[sourceData.schemaPath]) {
-          const rules = getSchemaConnectionRules(schemas[sourceData.schemaPath], sourceData.schemaPath);
+          const rules = getSchemaConnectionRules(schemas[sourceData.schemaPath], sourceData.schemaPath, schemas);
           const rule = rules.find(r => r.propertyPath === serializedEdge.sourceHandle);
           isArrayConnection = rule?.cardinality === 'many';
         }
@@ -405,7 +405,7 @@ export const DataModelBuilder: React.FC<DataModelBuilderProps> = ({ schemas }) =
         const nodeData = node.data as BuilderNodeData;
         // Estimate height based on node content
         const schema = schemas[nodeData.schemaPath];
-        const rules = schema ? getSchemaConnectionRules(schema, nodeData.schemaPath) : [];
+        const rules = schema ? getSchemaConnectionRules(schema, nodeData.schemaPath, schemas) : [];
         const propCount = rules.length;
         const inputCount = schema && (schema as any).properties 
           ? Object.keys((schema as any).properties).length - propCount 
@@ -583,7 +583,7 @@ export const DataModelBuilder: React.FC<DataModelBuilderProps> = ({ schemas }) =
     let isArrayConnection = false;
     
     if (sourceSchema) {
-      const rules = getSchemaConnectionRules(sourceSchema, sourceInstance!.schemaPath);
+      const rules = getSchemaConnectionRules(sourceSchema, sourceInstance!.schemaPath, schemas);
       const rule = rules.find(r => r.propertyPath === connection.sourceHandle);
       isArrayConnection = rule?.cardinality === 'many';
     }

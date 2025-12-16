@@ -1,8 +1,72 @@
 import React, { useMemo, useCallback } from 'react';
 import { Handle, Position, type NodeProps } from 'reactflow';
 import { Trash2 } from 'lucide-react';
-import { getSchemaConnectionRules, type ConnectionRule } from '../utils/schemaRelationships';
+import { getSchemaConnectionRules, getSchemaProperties, type ConnectionRule } from '../utils/schemaRelationships';
 import './BuilderNode.css';
+
+/**
+ * Resolve the actual type from a schema that might be a $ref to a primitive
+ */
+const resolvePropertyType = (propDef: any, schemas: Record<string, any>, schemaPath: string): string => {
+  if (!propDef) return 'string';
+  
+  // Direct type
+  if (propDef.type) return propDef.type;
+  
+  // $ref to another schema - resolve it
+  if (propDef.$ref && typeof propDef.$ref === 'string') {
+    let refPath = propDef.$ref.split('#')[0]; // Remove fragment
+    
+    // Resolve relative path
+    if (refPath.startsWith('../') || refPath.startsWith('./')) {
+      const baseDir = schemaPath.substring(0, schemaPath.lastIndexOf('/'));
+      const baseParts = baseDir.split('/').filter((p: string) => p);
+      const relParts = refPath.split('/').filter((p: string) => p);
+      const resultParts = [...baseParts];
+      for (const part of relParts) {
+        if (part === '..') resultParts.pop();
+        else if (part !== '.') resultParts.push(part);
+      }
+      refPath = resultParts.join('/');
+    } else if (!refPath.includes('/')) {
+      const baseDir = schemaPath.substring(0, schemaPath.lastIndexOf('/'));
+      refPath = baseDir ? `${baseDir}/${refPath}` : refPath;
+    }
+    
+    // Look up the referenced schema
+    const refSchema = schemas[refPath];
+    if (refSchema) {
+      // Direct type on referenced schema
+      if (refSchema.type) return refSchema.type;
+      
+      // Referenced schema has a top-level $ref (chain of refs)
+      if (refSchema.$ref) {
+        return resolvePropertyType(refSchema, schemas, refPath);
+      }
+      
+      // Check allOf for type
+      if (Array.isArray(refSchema.allOf)) {
+        for (const sub of refSchema.allOf) {
+          if (sub.type) return sub.type;
+          if (sub.$ref) {
+            // Recursively resolve
+            const resolved = resolvePropertyType(sub, schemas, refPath);
+            if (resolved !== 'string') return resolved; // Found a non-default type
+          }
+        }
+      }
+    }
+    
+    // Infer from path name as fallback
+    const lowerPath = refPath.toLowerCase();
+    if (lowerPath.includes('boolean') || lowerPath.includes('binary-flag') || lowerPath.includes('isavailable') || lowerPath.includes('isincluded')) return 'boolean';
+    if (lowerPath.includes('integer') || lowerPath.includes('number') || lowerPath.includes('mode') || lowerPath.includes('orderkey')) return 'integer';
+    if (lowerPath.includes('string')) return 'string';
+    if (lowerPath.includes('array')) return 'array';
+  }
+  
+  return 'string';
+};
 
 /**
  * Schema property definition
@@ -68,26 +132,32 @@ export const BuilderNode: React.FC<BuilderNodeProps> = ({ data, selected }) => {
     isValidConnectionTarget = false,
   } = data;
 
-  // Get connection rules for this schema
+  // Get connection rules for this schema (pass schemas to check for primitive refs)
   const connectionRules = useMemo<ConnectionRule[]>(() => {
     const schema = schemas[schemaPath];
     if (!schema) return [];
-    return getSchemaConnectionRules(schema, schemaPath);
+    return getSchemaConnectionRules(schema, schemaPath, schemas);
   }, [schemas, schemaPath]);
 
-  // Get primitive (non-ref) properties from schema
+  // Get primitive (non-ref) properties from schema (handles allOf compositions)
+  // This includes properties with $ref to primitive schemas
   const primitiveProperties = useMemo<SchemaProperty[]>(() => {
     const schema = schemas[schemaPath] as Record<string, any> | undefined;
-    if (!schema?.properties) return [];
+    if (!schema) return [];
     
+    // Use getSchemaProperties to handle allOf
+    const properties = getSchemaProperties(schema);
+    if (Object.keys(properties).length === 0) return [];
+    
+    // Only exclude properties that have connection rules (i.e., refs to complex objects)
     const refPropertyPaths = new Set(connectionRules.map(rule => rule.propertyPath));
     const requiredProps = new Set(schema.required || []);
     
-    return Object.entries(schema.properties)
+    return Object.entries(properties)
       .filter(([name]) => !refPropertyPaths.has(name))
       .map(([name, propDef]: [string, any]) => ({
         name,
-        type: propDef.type || 'string',
+        type: resolvePropertyType(propDef, schemas, schemaPath),
         format: propDef.format,
         description: propDef.description,
         required: requiredProps.has(name),
