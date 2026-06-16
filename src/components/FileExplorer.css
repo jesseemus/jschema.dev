@@ -35,11 +35,14 @@
 
 .explorer-action-btn {
   background: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
   border: none;
   color: #888888;
   font-size: 14px;
   cursor: pointer;
-  padding: 2px 6px;
+  padding: 4px 6px;
   border-radius: 3px;
   line-height: 1;
 }
@@ -56,6 +59,10 @@
 .explorer-action-btn.multi-mode-btn:hover {
   background-color: #2a3a2a;
   color: #6FCF70;
+}
+
+.split-mode-btn {
+  font-size: 18px;
 }
 
 .add-file-dialog {
@@ -280,6 +287,11 @@
   border-radius: 3px;
   cursor: pointer;
   min-width: 100px;
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
 }
 
 .add-first-file-btn:hover {

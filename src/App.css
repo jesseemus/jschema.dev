@@ -48,25 +48,40 @@
   display: flex;
   flex: 1;
   overflow: hidden;
+  position: relative;
+}
+
+.main-content.resizing {
+  user-select: none;
+  cursor: ew-resize;
+}
+
+.main-content.resizing * {
+  user-select: none;
+  pointer-events: none;
 }
 
 .editor-pane {
   width: 40%;
-  max-width: 800px;
   border-right: 1px solid #333;
   background-color: #1e1e1e;
-  transition: width 0.3s ease;
   overflow: hidden;
+  flex-shrink: 0;
+  transition: width 0.3s ease;
 }
 
 .editor-pane.multi-mode {
   width: 50%;
-  max-width: 1000px;
 }
 
 .editor-pane.minimized {
-  width: 0;
+  width: 0 !important;
   border-right: none;
+  transition: width 0.3s ease;
+}
+
+.editor-pane.resizing-pane {
+  transition: none;
 }
 
 .visualizer-pane {
@@ -180,6 +195,29 @@
   background-color: #1a4d33;
   cursor: not-allowed;
   opacity: 0.7;
+}
+
+/* Pane resize handle */
+.pane-resize-handle {
+  width: 4px;
+  height: 100%;
+  cursor: ew-resize;
+  background-color: transparent;
+  transition: background-color 0.2s ease;
+  flex-shrink: 0;
+  z-index: 10;
+}
+
+.pane-resize-handle:hover {
+  background-color: #007acc;
+}
+
+.pane-resize-handle:active {
+  background-color: #0098ff;
+}
+
+.main-content.resizing .pane-resize-handle {
+  background-color: #007acc;
 }
 
 .breadcrumb-container {

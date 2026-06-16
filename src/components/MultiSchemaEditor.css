@@ -5,10 +5,25 @@
   height: 100%;
   width: 100%;
   background-color: #1e1e1e;
+  position: relative;
 }
 
 .json-editor-container.maximized {
   flex-direction: row;
+}
+
+.json-editor-container.resizing {
+  user-select: none;
+  cursor: ns-resize;
+}
+
+.json-editor-container.maximized.resizing {
+  cursor: ew-resize;
+}
+
+.json-editor-container.resizing * {
+  user-select: none;
+  pointer-events: none;
 }
 
 .json-editor-container .explorer-section {
@@ -39,10 +54,25 @@
   height: 100%;
   width: 100%;
   background-color: #1e1e1e;
+  position: relative;
 }
 
 .multi-schema-editor.maximized {
   flex-direction: row;
+}
+
+.multi-schema-editor.resizing {
+  user-select: none;
+  cursor: ns-resize;
+}
+
+.multi-schema-editor.maximized.resizing {
+  cursor: ew-resize;
+}
+
+.multi-schema-editor.resizing * {
+  user-select: none;
+  pointer-events: none;
 }
 
 .multi-schema-editor .explorer-section {
@@ -86,4 +116,36 @@
 
 .no-file-open p {
   margin: 0;
+}
+
+/* Editor resize handle */
+.editor-resize-handle {
+  background-color: transparent;
+  transition: background-color 0.2s ease;
+  flex-shrink: 0;
+  z-index: 10;
+}
+
+.editor-resize-handle.horizontal {
+  width: 4px;
+  height: 100%;
+  cursor: ew-resize;
+}
+
+.editor-resize-handle.vertical {
+  width: 100%;
+  height: 4px;
+  cursor: ns-resize;
+}
+
+.editor-resize-handle:hover {
+  background-color: #007acc;
+}
+
+.editor-resize-handle:active {
+  background-color: #0098ff;
+}
+
+.multi-schema-editor.resizing .editor-resize-handle {
+  background-color: #007acc;
 }

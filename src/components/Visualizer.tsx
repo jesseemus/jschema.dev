@@ -9,8 +9,8 @@ import ReactFlow, {
     type OnEdgesChange,
     type ReactFlowInstance,
 } from 'reactflow';
-import { ChevronDown, ChevronUp } from 'lucide-react';
 import 'reactflow/dist/style.css';
+import { GoChevronDown, GoChevronUp } from 'react-icons/go';
 
 interface VisualizerProps {
     nodes: Node[];
@@ -150,6 +150,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
                     <div style={{
                         display: 'flex',
                         justifyContent: 'space-between',
+                        gap: '10px',
                         alignItems: 'center',
                         marginBottom: isEntityTypesMinimized ? '0' : '6px'
                     }}>
@@ -167,7 +168,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
                                 justifyContent: 'center'
                             }}
                         >
-                            {isEntityTypesMinimized ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                            {isEntityTypesMinimized ? <GoChevronUp size={14} /> : <GoChevronDown size={14} />}
                         </button>
                     </div>
                     {!isEntityTypesMinimized && (

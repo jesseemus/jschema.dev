@@ -1,5 +1,7 @@
 import React from 'react';
 import './SchemaTab.css';
+import { FaFile } from 'react-icons/fa6';
+import { IoMdClose } from 'react-icons/io';
 
 interface SchemaTabProps {
   path: string;
@@ -24,7 +26,7 @@ export const SchemaTab: React.FC<SchemaTabProps> = ({
       onClick={onSelect}
       title={path}
     >
-      <span className="tab-icon">📄</span>
+      <span className="tab-icon"><FaFile /></span>
       <span className="tab-name">{fileName}</span>
       {isDirty && <span className="dirty-indicator">●</span>}
       <button
@@ -35,7 +37,7 @@ export const SchemaTab: React.FC<SchemaTabProps> = ({
         }}
         title="Close"
       >
-        ×
+        <IoMdClose />
       </button>
     </div>
   );

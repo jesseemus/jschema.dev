@@ -65,6 +65,8 @@ function App() {
   const reactFlowInstance = useRef<ReactFlowInstance | null>(null);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const dragCounterRef = useRef(0);
+  const [editorPaneWidth, setEditorPaneWidth] = useState(viewMode === 'multi' ? 50 : 40);
+  const [isResizingPane, setIsResizingPane] = useState(false);
 
   type NavigationState = {
     label: string;
@@ -118,6 +120,35 @@ function App() {
     } catch (e) {
     }
   }, [setNodes, setEdges]);
+
+  // Resize handlers for editor pane
+  const handlePaneResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizingPane(true);
+  }, []);
+
+  const handlePaneResizeMove = useCallback((e: MouseEvent) => {
+    if (!isResizingPane) return;
+    const newWidth = (e.clientX / window.innerWidth) * 100;
+    if (newWidth >= 20 && newWidth <= 80) {
+      setEditorPaneWidth(newWidth);
+    }
+  }, [isResizingPane]);
+
+  const handlePaneResizeEnd = useCallback(() => {
+    setIsResizingPane(false);
+  }, []);
+
+  useEffect(() => {
+    if (isResizingPane) {
+      document.addEventListener('mousemove', handlePaneResizeMove);
+      document.addEventListener('mouseup', handlePaneResizeEnd);
+      return () => {
+        document.removeEventListener('mousemove', handlePaneResizeMove);
+        document.removeEventListener('mouseup', handlePaneResizeEnd);
+      };
+    }
+  }, [isResizingPane, handlePaneResizeMove, handlePaneResizeEnd]);
 
   // Debounced schema change handler for multi-mode editor
   const handleMultiSchemaChange = useCallback((path: string, content: string) => {
@@ -1068,10 +1099,13 @@ function App() {
           </button>
         </div>
       </header>
-      <main className="main-content">
-        <div className={`editor-pane ${isEditorMinimized ? 'minimized' : ''} ${viewMode === 'multi' ? 'multi-mode' : ''}`}>
-          {!isEditorMinimized && (
-            viewMode === 'multi' && schemasMap.size > 0 ? (
+      <main className={`main-content ${isResizingPane ? 'resizing' : ''}`}>
+        <div 
+          className={`editor-pane ${isEditorMinimized ? 'minimized' : ''} ${viewMode === 'multi' ? 'multi-mode' : ''} ${isResizingPane ? 'resizing-pane' : ''}`}
+          style={!isEditorMinimized ? { width: `${editorPaneWidth}%`, maxWidth: 'none' } : {}}
+        >
+          <div style={{ display: isEditorMinimized ? 'none' : 'contents' }}>
+            {viewMode === 'multi' && schemasMap.size > 0 ? (
               <MultiSchemaEditor 
                 schemasMap={schemasMap} 
                 onPropertyClick={handleEditorClick}
@@ -1177,9 +1211,14 @@ function App() {
                   });
                 }}
               />
-            )
-          )}
+            )}
+          </div>
         </div>
+        <div 
+          className="pane-resize-handle"
+          onMouseDown={handlePaneResizeStart}
+          style={{ display: isEditorMinimized ? 'none' : undefined }}
+        />
         <div className="visualizer-pane">
           <Visualizer
             nodes={nodes}
